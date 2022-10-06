@@ -1,9 +1,23 @@
 
 # Also see "include/mbedtls/mbedtls_config.h"
 
-CFLAGS	?= -O2
+############
+# wasi sdk toolchain
+WASI_SDK_SYSROOT=$(WASI_SDK_ROOT)/share/wasi-sysroot
+CLANG_FLAGS=--target=wasm32-wasi
+CC=$(WASI_SDK_ROOT)/bin/clang --sysroot=$(WASI_SDK_SYSROOT) $(CLANG_FLAGS)
+CXX=$(WASI_SDK_ROOT)/bin/clang++ --sysroot=$(WASI_SDK_SYSROOT) $(CLANG_FLAGS)
+AR=$(WASI_SDK_ROOT)/bin/ar
+
+CFLAGS=-Wall -Wno-unused-result -Wno-unknown-pragmas -Wfatal-errors -Wno-writable-strings -fPIC -msimd128 -Dunix -D_WASI_EMULATED_SIGNAL
+OPTS=-Ofast
+#OPTS=-O0 -g
+
+CFLAGS+=$(OPTS)
+
+LDFLAGS= -lm
+
 WARNING_CFLAGS ?=  -Wall -Wextra -Wformat=2 -Wno-format-nonliteral
-LDFLAGS ?=
 
 # Include ../include for public headers and . for private headers.
 # Note that . needs to be included explicitly for the sake of library
@@ -157,6 +171,7 @@ OBJS_CRYPTO= \
 include ../3rdparty/Makefile.inc
 LOCAL_CFLAGS+=$(THIRDPARTY_INCLUDES)
 OBJS_CRYPTO+=$(THIRDPARTY_CRYPTO_OBJECTS)
+OBJS_CRYPTO_WASM = $(OBJS_CRYPTO:%.o=%.wasm)
 
 OBJS_X509= \
 	   x509.o \
@@ -277,6 +292,17 @@ ifneq ($(APPLE_BUILD),0)
 endif
 endif
 
+# crypto wasm
+libmbedcrypto_wasm.a: $(OBJS_CRYPTO_WASM)
+	echo "  AR    $@"
+	$(AR) $(ARFLAGS) $@ $(OBJS_CRYPTO_WASM)
+ifdef APPLE_BUILD
+ifneq ($(APPLE_BUILD),0)
+	echo "  RL    $@"
+	$(RL) $(RLFLAGS) $@
+endif
+endif
+
 libmbedcrypto.$(SOEXT_CRYPTO): $(OBJS_CRYPTO)
 	echo "  LD    $@"
 	$(CC) -shared -Wl,-soname,$@ -o $@ $(OBJS_CRYPTO) $(LOCAL_LDFLAGS) $(LDFLAGS)
@@ -297,6 +323,10 @@ libmbedcrypto.dll: $(OBJS_CRYPTO)
 
 .c.o:
 	echo "  CC    $<"
+	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) -o $@ -c $<
+
+%.wasm: %.c
+	echo "  CC (wasm)    $<"
 	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) -o $@ -c $<
 
 .PHONY: generated_files
